@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -512,6 +513,12 @@ private fun SpeechBubbleCard(
                         uiState.errorMessage.contains("401") ||
                         uiState.errorMessage.contains("403")
 
+                val isNetworkError = uiState.errorMessage.contains("ইন্টারনেট", ignoreCase = true) ||
+                        uiState.errorMessage.contains("নেটওয়ার্ক", ignoreCase = true) ||
+                        uiState.errorMessage.contains("network", ignoreCase = true) ||
+                        uiState.errorMessage.contains("connection", ignoreCase = true) ||
+                        uiState.errorMessage.contains("timeout", ignoreCase = true)
+
                 if (isMicPermissionError) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -759,6 +766,101 @@ private fun SpeechBubbleCard(
                             )
                         }
                     }
+                } else if (isNetworkError) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WifiOff,
+                                contentDescription = null,
+                                tint = Color(0xFFFFB74D),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "ইন্টারনেট সংযোগে সমস্যা",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            IconButton(
+                                onClick = onDismissError,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = uiState.errorMessage,
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = onRetryVoice,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PrimaryPurple
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "পুনরায় চেষ্টা",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                    maxLines = 1
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = onOpenTextInput,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Keyboard,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = AccentCyanBright
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "কীবোর্ডে লিখুন",
+                                    fontSize = 12.5.sp,
+                                    color = AccentCyanBright,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
                 } else {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -773,8 +875,8 @@ private fun SpeechBubbleCard(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Error Occurred",
-                                color = ErrorRed,
+                                text = "সাময়িক সমস্যা",
+                                color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -823,7 +925,9 @@ private fun SpeechBubbleCard(
                                 Text(
                                     text = "আবার চেষ্টা",
                                     fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                    maxLines = 1
                                 )
                             }
 
@@ -840,10 +944,11 @@ private fun SpeechBubbleCard(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "টাইপ করুন",
+                                    text = "কীবোর্ডে লিখুন",
                                     fontSize = 12.5.sp,
                                     color = AccentCyanBright,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
                                 )
                             }
                         }

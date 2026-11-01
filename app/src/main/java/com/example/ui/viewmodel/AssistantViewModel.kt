@@ -365,6 +365,17 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
+        if (!com.example.data.network.NetworkUtils.isNetworkAvailable(getApplication())) {
+            _uiState.update {
+                it.copy(
+                    voiceState = VoiceState.ERROR,
+                    userQuestion = trimmed,
+                    errorMessage = "ইন্টারনেট সংযোগ পাওয়া যাচ্ছে না। দয়া করে আপনার মোবাইল ডেটা বা ওয়াই-ফাই চালু আছে কি না দেখে নিন।"
+                )
+            }
+            return
+        }
+
         val startTime = System.currentTimeMillis()
         _uiState.update {
             it.copy(

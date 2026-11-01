@@ -9,7 +9,6 @@ import android.speech.SpeechRecognizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.Locale
 
 class SpeechRecognizerManager(private val context: Context) {
 
@@ -18,7 +17,7 @@ class SpeechRecognizerManager(private val context: Context) {
         object Ready : SpeechState()
         data class Listening(val partialText: String = "", val amplitude: Float = 0f) : SpeechState()
         data class Result(val text: String) : SpeechState()
-        data class Error(val message: String, val isPermanent: Boolean = false) : SpeechState()
+        data class Error(val message: String, val isPermanent: Boolean = false, val isNetwork: Boolean = false) : SpeechState()
     }
 
     private val _speechState = MutableStateFlow<SpeechState>(SpeechState.Idle)
@@ -33,7 +32,10 @@ class SpeechRecognizerManager(private val context: Context) {
 
     fun startListening(languageCode: String = "bn") {
         if (!isSpeechRecognitionAvailable()) {
-            _speechState.value = SpeechState.Error("Speech recognition service is not available on this device.")
+            _speechState.value = SpeechState.Error(
+                message = "ডিভাইসে স্পিচ রিকগনিশন সার্ভিস প্রস্তুত নেই। গুগল স্পিচ সার্ভিস আপডেট করুন।",
+                isPermanent = true
+            )
             return
         }
 
@@ -42,6 +44,7 @@ class SpeechRecognizerManager(private val context: Context) {
         }
 
         try {
+            speechRecognizer?.destroy()
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
                 setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
@@ -50,12 +53,11 @@ class SpeechRecognizerManager(private val context: Context) {
                     }
 
                     override fun onBeginningOfSpeech() {
-                        _speechState.value = SpeechState.Listening(amplitude = 0.2f)
+                        _speechState.value = SpeechState.Listening(amplitude = 0.25f)
                     }
 
                     override fun onRmsChanged(rmsdB: Float) {
-                        // Normalize rmsdB (typically -2 to 10 dB) to 0.0 .. 1.0
-                        val normalized = ((rmsdB + 2f) / 12f).coerceIn(0.05f, 1.0f)
+                        val normalized = ((rmsdB + 2f) / 12f).coerceIn(0.08f, 1.0f)
                         val currentText = (_speechState.value as? SpeechState.Listening)?.partialText ?: ""
                         _speechState.value = SpeechState.Listening(partialText = currentText, amplitude = normalized)
                     }
@@ -68,22 +70,35 @@ class SpeechRecognizerManager(private val context: Context) {
 
                     override fun onError(error: Int) {
                         isListening = false
-                        val message = when (error) {
-                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error (অডিও রেকর্ডিংয়ে ত্রুটি হয়েছে)"
-                            SpeechRecognizer.ERROR_CLIENT -> "Speech recognition client error (স্পিচ সার্ভিসে সমস্যা)"
-                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required (মাইক্রোফোন পারমিশন প্রয়োজন)"
-                            SpeechRecognizer.ERROR_NETWORK -> "Network error during speech recognition (ইন্টারনেট সংযোগ চেক করুন)"
-                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout while recognizing speech (ইন্টারনেট টাইমআউট হয়েছে)"
-                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Please try again (কথা বোঝা যায়নি, আবার বলুন)"
-                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy (মাইক্রোফোন প্রস্তুত হচ্ছে...)"
-                            SpeechRecognizer.ERROR_SERVER -> "Server error from speech recognition (সার্ভার সমস্যা)"
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected. Please tap and speak (কোনো কথা শোনা যায়নি, ট্যাপ করে বলুন)"
-                            else -> "Speech recognition error ($error)"
+                        when (error) {
+                            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> {
+                                _speechState.value = SpeechState.Error(
+                                    message = "ইন্টারনেট সংযোগে একটু সমস্যা হচ্ছে, দয়া করে আপনার নেটওয়ার্ক কানেকশনটি একবার দেখে নিন।",
+                                    isNetwork = true
+                                )
+                            }
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                                _speechState.value = SpeechState.Error(
+                                    message = "মাইক্রোফোন পারমিশন প্রয়োজন। জারার সাথে কথা বলতে পারমিশন এলাউ করুন।",
+                                    isPermanent = true
+                                )
+                            }
+                            SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                                _speechState.value = SpeechState.Error(
+                                    message = "কথাটি স্পষ্ট শুনতে পাইনি, মাইক্রোফোনে ট্যাপ করে আরেকবার বলুন।"
+                                )
+                            }
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
+                                cancel()
+                                _speechState.value = SpeechState.Idle
+                            }
+                            SpeechRecognizer.ERROR_AUDIO -> {
+                                _speechState.value = SpeechState.Error("অডিও রেকর্ডিংয়ে সাময়িক সমস্যা হয়েছে, পুনরায় চেষ্টা করুন।")
+                            }
+                            else -> {
+                                _speechState.value = SpeechState.Error("কথা বুঝতে সমস্যা হয়েছে, অনুগ্রহ করে আবার বলুন।")
+                            }
                         }
-                        _speechState.value = SpeechState.Error(
-                            message = message,
-                            isPermanent = (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
-                        )
                     }
 
                     override fun onResults(results: Bundle?) {
@@ -93,7 +108,7 @@ class SpeechRecognizerManager(private val context: Context) {
                         if (recognizedText.isNotBlank()) {
                             _speechState.value = SpeechState.Result(recognizedText)
                         } else {
-                            _speechState.value = SpeechState.Error("Could not recognize any words.")
+                            _speechState.value = SpeechState.Error("কথাটি বুঝতে পারিনি, আরেকবার বলুন।")
                         }
                     }
 
@@ -123,36 +138,50 @@ class SpeechRecognizerManager(private val context: Context) {
                 }
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+                if (languageCode == "bn") {
+                    putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("bn-BD", "bn-IN", "bn"))
+                }
             }
 
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             isListening = false
-            _speechState.value = SpeechState.Error("Failed to start speech recognition: ${e.localizedMessage}")
+            _speechState.value = SpeechState.Error("ভয়েস ইনপুট চালু করতে সমস্যা হয়েছে, আবার চেষ্টা করুন।")
         }
     }
 
     fun stopListening() {
         if (isListening) {
             isListening = false
-            speechRecognizer?.stopListening()
+            try {
+                speechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                // Ignored
+            }
         }
     }
 
     fun cancel() {
         isListening = false
-        speechRecognizer?.cancel()
+        try {
+            speechRecognizer?.cancel()
+        } catch (e: Exception) {
+            // Ignored
+        }
         _speechState.value = SpeechState.Idle
     }
 
     fun reset() {
         cancel()
-        _speechState.value = SpeechState.Idle
     }
 
     fun destroy() {
         isListening = false
-        speechRecognizer?.destroy()
+        try {
+            speechRecognizer?.destroy()
+        } catch (e: Exception) {
+            // Ignored
+        }
         speechRecognizer = null
         _speechState.value = SpeechState.Idle
     }

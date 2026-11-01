@@ -17,9 +17,10 @@ class GeminiClient {
         .build()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(25, TimeUnit.SECONDS)
-        .readTimeout(35, TimeUnit.SECONDS)
-        .writeTimeout(25, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         })
@@ -239,7 +240,7 @@ class GeminiClient {
                     }
                 }
             } catch (e: IOException) {
-                return GeminiResult.Error("ইন্টারনেট সংযোগ পাওয়া যাচ্ছে না। আপনার নেটওয়ার্ক কানেকশন চেক করুন।")
+                lastError = GeminiResult.Error("ইন্টারনেট সংযোগে সমস্যা হচ্ছে। আপনার ওয়াই-ফাই বা মোবাইল ডেটা চেক করে আবার চেষ্টা করুন।")
             } catch (e: Exception) {
                 lastError = GeminiResult.Error("সার্ভিস ত্রুটি: ${e.localizedMessage ?: "Unknown error"}")
             }
@@ -268,11 +269,18 @@ class GeminiClient {
         }
 
         val languagePrompt = when (languageCode) {
-            "bn" -> "You are 'Zara AI', an advanced, futuristic voice-powered personal assistant running natively on the user's Android device. Your primary language is Bengali (বাংলা). You are intelligent, loyal, highly efficient, and polite. You can control apps, search YouTube and the web, screen and answer incoming calls on user's behalf, and manage messages. Respond conversationally, concisely, and warmly in clear, natural Bengali. Avoid long essay paragraphs; write clear sentences optimized for spoken audio delivery."
-            "hi" -> "You are 'Zara AI', an advanced, voice-powered personal assistant on Android. Respond in natural, conversational Hindi (हिन्दी). Keep answers concise, polite, and optimized for spoken delivery."
-            "ar" -> "You are 'Zara AI', an advanced, voice-powered personal assistant on Android. Respond in natural, conversational Arabic. Keep answers concise and easy to listen to."
-            "es" -> "You are 'Zara AI', an advanced, voice-powered personal assistant on Android. Respond in natural, conversational Spanish. Keep answers concise and easy to listen to."
-            else -> "You are 'Zara AI', an advanced, futuristic voice-powered personal assistant running natively on the user's Android phone. You are intelligent, loyal, and efficient. You can manage apps, automate YouTube/web searches, screen calls on behalf of the user, and read messages. Respond conversationally, clearly, and concisely in engaging English, optimized for spoken Text-to-Speech audio."
+            "bn" -> """
+                তুমি 'জারা' (Zara AI) — ব্যবহারকারীর অত্যন্ত বন্ধুসুলভ, মার্জিত, বুদ্ধিমান এবং স্পষ্টভাষী ব্যক্তিগত এআই সহকারী।
+                তোমার কথা বলা এবং টেক্সট আউটপুটের মূল নিয়মাবলী:
+                ১. ভাষা সবসময় খুব পরিষ্কার, সাবলীল এবং মার্জিত হতে হবে। কোনো জটিল, কৃত্রিম বা রোবটিক শব্দ ব্যবহার না করে একদম স্বাভাবিক মানুষের মতো সহজ বাংলায় কথা বলবে।
+                ২. তোমার উত্তরগুলো যেন সংক্ষিপ্ত, স্পষ্ট এবং শোনার জন্য উপযোগী হয় (Text-to-Speech friendly)। অহেতুক লম্বা বক্তৃতা পরিহার করবে।
+                ৩. কোনো উত্তরের মাঝে স্টার চিহ্ন (** বা *), হ্যাশ (#), আন্ডারস্কোর (_), বুলেট পয়েন্ট বা কোড চিহ্ন লিখবে না, কারণ ভয়েসে পড়ার সময় এগুলো অদ্ভুত শোনায়। একদম স্বাভাবিক সহজ বাক্যে কথা বলবে।
+                ৪. তুমি ফোন অ্যাপস ওপেন করা, ইউটিউব ও গুগলে সার্চ করা, কল স্ক্রিনিং ও মেসেজ সামলানোসহ প্রয়োজনীয় সব কাজ করে দাও। সবসময় বন্ধুসুলভ, বিনম্র ও সহায়তামূলক ভঙ্গিতে কথা বলবে।
+            """.trimIndent()
+            "hi" -> "You are 'Zara AI', a friendly and articulate personal voice assistant. Respond in natural, conversational, simple Hindi (हिन्दी). Keep answers concise, polite, and spoken-friendly without any markdown asterisks."
+            "ar" -> "You are 'Zara AI', a friendly and articulate personal voice assistant. Respond in natural, conversational Arabic. Keep answers concise and easy to listen to without markdown asterisks."
+            "es" -> "You are 'Zara AI', a friendly and articulate personal voice assistant. Respond in natural, conversational Spanish. Keep answers concise and easy to listen to without markdown asterisks."
+            else -> "You are 'Zara AI', an extremely friendly, polite, and articulate personal voice assistant running natively on Android. Keep your tone natural, human-like, and warm. Avoid robotic jargon. Give concise, clear, and direct answers optimized for listening through Text-to-Speech without asterisks or markdown symbols."
         }
 
         val contentsList = mutableListOf<GeminiContent>()
@@ -289,7 +297,7 @@ class GeminiClient {
             ),
             generationConfig = GeminiGenerationConfig(
                 temperature = 0.7,
-                maxOutputTokens = 800
+                maxOutputTokens = 600
             )
         )
 
@@ -297,50 +305,63 @@ class GeminiClient {
         var lastError: GeminiResult.Error? = null
 
         for (candidate in candidates) {
-            try {
-                val response = apiService.generateContent(
-                    model = candidate,
-                    apiKey = activeKey,
-                    request = request
-                )
+            // Try with 1 transient retry on network drop
+            var attempts = 0
+            val maxAttempts = 2
+            while (attempts < maxAttempts) {
+                attempts++
+                try {
+                    val response = apiService.generateContent(
+                        model = candidate,
+                        apiKey = activeKey,
+                        request = request
+                    )
 
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    val text = body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                    if (!text.isNullOrBlank()) {
-                        cachedWorkingModel = candidate
-                        return GeminiResult.Success(text.trim(), modelUsed = candidate)
-                    } else {
-                        val blockReason = body?.promptFeedback?.blockReason
-                        if (blockReason != null) {
-                            return GeminiResult.Error("রেসপন্স ব্লক করা হয়েছে: $blockReason")
+                    if (response.isSuccessful) {
+                        val body = response.body()
+                        val text = body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                        if (!text.isNullOrBlank()) {
+                            cachedWorkingModel = candidate
+                            return GeminiResult.Success(text.trim(), modelUsed = candidate)
+                        } else {
+                            val blockReason = body?.promptFeedback?.blockReason
+                            if (blockReason != null) {
+                                return GeminiResult.Error("রেসপন্স ব্লক করা হয়েছে: $blockReason")
+                            }
                         }
                     }
-                }
 
-                val code = response.code()
-                when (code) {
-                    401, 403 -> {
-                        return GeminiResult.Error("Gemini API key টি সঠিক নয় বা মেয়াদোত্তীর্ণ ($code)। সেটিংস থেকে নতুন কী দিন।", isAuthError = true)
+                    val code = response.code()
+                    when (code) {
+                        401, 403 -> {
+                            return GeminiResult.Error("Gemini API key টি সঠিক নয় বা মেয়াদোত্তীর্ণ ($code)। সেটিংস থেকে নতুন কী দিন।", isAuthError = true)
+                        }
+                        429 -> {
+                            return GeminiResult.Error("Gemini API ব্যবহারের কোটা শেষ ($code)। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।", isQuotaError = true)
+                        }
+                        404 -> {
+                            // Try next candidate model immediately
+                            break
+                        }
+                        else -> {
+                            lastError = GeminiResult.Error("সার্ভার সমস্যা ($code)। অনুগ্রহ করে কিছুক্ষণ পর চেষ্টা করুন।")
+                            break
+                        }
                     }
-                    429 -> {
-                        return GeminiResult.Error("Gemini API ব্যবহারের কোটা শেষ ($code)। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।", isQuotaError = true)
-                    }
-                    404 -> {
-                        // Try next candidate model
+                } catch (e: IOException) {
+                    if (attempts < maxAttempts) {
+                        kotlinx.coroutines.delay(600)
                         continue
                     }
-                    else -> {
-                        lastError = GeminiResult.Error("API request error ($code). অনুগ্রহ করে ইন্টারনেট ও সেটিংস চেক করুন।")
-                    }
+                    lastError = GeminiResult.Error("ইন্টারনেট সংযোগে একটু সমস্যা হচ্ছে। দয়া করে আপনার নেটওয়ার্ক কানেকশনটি একবার দেখে নিন।")
+                    break
+                } catch (e: Exception) {
+                    lastError = GeminiResult.Error("সাময়িক সমস্যা: ${e.localizedMessage ?: "Unexpected error"}")
+                    break
                 }
-            } catch (e: IOException) {
-                return GeminiResult.Error("ইন্টারনেট সংযোগ পাওয়া যাচ্ছে না। ইন্টারনেট কানেকশন চেক করে আবার চেষ্টা করুন।")
-            } catch (e: Exception) {
-                lastError = GeminiResult.Error("সার্ভিস ত্রুটি: ${e.localizedMessage ?: "Unexpected error"}")
             }
         }
 
-        return lastError ?: GeminiResult.Error("Gemini সার্ভারের সাথে সংযোগ করা যায়নি। অনুগ্রহ করে সেটিংস থেকে API Key পরীক্ষা করুন।")
+        return lastError ?: GeminiResult.Error("ইন্টারনেট সংযোগ বা সার্ভারে সমস্যা হচ্ছে। অনুগ্রহ করে আপনার নেটওয়ার্ক কানেকশন চেক করুন।")
     }
 }
