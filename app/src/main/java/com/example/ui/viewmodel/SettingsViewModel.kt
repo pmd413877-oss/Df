@@ -51,7 +51,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun testConnection(apiKey: String, model: String = "gemini-2.5-flash") {
+    fun testConnection(apiKey: String, model: String = "gemini-1.5-flash") {
         viewModelScope.launch {
             _isTestingConnection.value = true
             _testConnectionState.value = null

@@ -37,7 +37,9 @@ class PreferencesRepository(private val context: Context) {
             speechPitch = preferences[PreferencesKeys.SPEECH_PITCH] ?: 1.0f,
             autoSpeak = preferences[PreferencesKeys.AUTO_SPEAK] ?: true,
             selectedVoiceName = preferences[PreferencesKeys.SELECTED_VOICE_NAME] ?: "",
-            selectedModel = preferences[PreferencesKeys.SELECTED_MODEL] ?: "gemini-2.5-flash"
+            selectedModel = preferences[PreferencesKeys.SELECTED_MODEL]?.let {
+                if (it == "gemini-2.5-flash" || it.isBlank()) "gemini-1.5-flash" else it
+            } ?: "gemini-1.5-flash"
         )
     }
 

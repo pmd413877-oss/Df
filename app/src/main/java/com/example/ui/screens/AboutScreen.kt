@@ -148,7 +148,7 @@ fun AboutScreen(
             TechStackCard(
                 icon = Icons.Default.Psychology,
                 title = "AI Intelligence",
-                description = "Google Gemini 2.5 Flash API with multi-turn conversational context and bilingual support."
+                description = "Google Gemini 1.5 Flash API with multi-turn conversational context and bilingual support."
             )
 
             Spacer(modifier = Modifier.height(12.dp))

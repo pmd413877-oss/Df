@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Mic
@@ -105,6 +106,7 @@ fun HomeScreen(
     assistantViewModel: AssistantViewModel,
     onNavigateHistory: () -> Unit,
     onNavigateSettings: () -> Unit,
+    onNavigateApiKey: () -> Unit = {},
     onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -201,6 +203,7 @@ fun HomeScreen(
                         }
                         context.startActivity(intent)
                     },
+                    onOpenApiKeySetup = onNavigateApiKey,
                     onOpenTextInput = {
                         assistantViewModel.openTextInput()
                     },
@@ -463,6 +466,7 @@ private fun SpeechBubbleCard(
     onCancelProcessing: () -> Unit,
     onRequestMicPermission: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenApiKeySetup: () -> Unit,
     onOpenTextInput: () -> Unit,
     onRetryVoice: () -> Unit,
     modifier: Modifier = Modifier
@@ -499,6 +503,14 @@ private fun SpeechBubbleCard(
                 val isMicPermissionError = uiState.errorMessage.contains("Microphone", ignoreCase = true) ||
                         uiState.errorMessage.contains("মাইক্রোফোন", ignoreCase = true) ||
                         uiState.errorMessage.contains("permission", ignoreCase = true)
+
+                val isApiError = uiState.errorMessage.contains("API", ignoreCase = true) ||
+                        uiState.errorMessage.contains("key", ignoreCase = true) ||
+                        uiState.errorMessage.contains("কী", ignoreCase = true) ||
+                        uiState.errorMessage.contains("মডেল", ignoreCase = true) ||
+                        uiState.errorMessage.contains("404") ||
+                        uiState.errorMessage.contains("401") ||
+                        uiState.errorMessage.contains("403")
 
                 if (isMicPermissionError) {
                     Column(
@@ -626,9 +638,133 @@ private fun SpeechBubbleCard(
                             )
                         }
                     }
+                } else if (isApiError) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                tint = AccentCyanBright,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Gemini API সমস্যা",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            IconButton(
+                                onClick = onDismissError,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = uiState.errorMessage,
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = onOpenApiKeySetup,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PrimaryPurple
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("bubble_open_api_key_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Key,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "API কী দিন",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = onRetryVoice,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("bubble_retry_api_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = AccentCyanBright
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "আবার চেষ্টা",
+                                    fontSize = 12.5.sp,
+                                    color = AccentCyanBright,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onOpenTextInput() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Keyboard,
+                                contentDescription = null,
+                                tint = PrimaryPurpleLight,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "অথবা কীবোর্ডে টাইপ করে কথা বলুন",
+                                color = PrimaryPurpleLight,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
                 } else {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Icon(
                                 imageVector = Icons.Default.Error,
                                 contentDescription = null,
@@ -665,6 +801,7 @@ private fun SpeechBubbleCard(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -673,7 +810,8 @@ private fun SpeechBubbleCard(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = PrimaryPurple
                                 ),
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
@@ -682,12 +820,17 @@ private fun SpeechBubbleCard(
                                     tint = Color.White
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = "পুনরায় চেষ্টা করুন", fontSize = 12.sp)
+                                Text(
+                                    text = "আবার চেষ্টা",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
 
                             OutlinedButton(
                                 onClick = onOpenTextInput,
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Keyboard,
@@ -696,7 +839,12 @@ private fun SpeechBubbleCard(
                                     tint = AccentCyanBright
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = "টাইপ করুন", fontSize = 12.sp, color = AccentCyanBright)
+                                Text(
+                                    text = "টাইপ করুন",
+                                    fontSize = 12.5.sp,
+                                    color = AccentCyanBright,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }

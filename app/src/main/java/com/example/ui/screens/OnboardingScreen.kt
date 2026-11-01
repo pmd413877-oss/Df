@@ -85,7 +85,7 @@ val ONBOARDING_STEPS = listOf(
         subtitle = "Google Gemini Intelligence",
         description = "Ask questions on coding, storytelling, science, explanations, or daily advice. Receive thoughtful, intelligent answers.",
         icon = Icons.Default.Psychology,
-        badge = "Gemini 2.5 Flash"
+        badge = "Gemini 1.5 Flash"
     ),
     OnboardingStep(
         title = "Natural Spoken Speech",

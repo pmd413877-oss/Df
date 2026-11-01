@@ -9,7 +9,7 @@ data class UserPreferences(
     val speechPitch: Float = 1.0f,
     val autoSpeak: Boolean = true,
     val selectedVoiceName: String = "",
-    val selectedModel: String = "gemini-2.5-flash"
+    val selectedModel: String = "gemini-1.5-flash"
 )
 
 data class SupportedLanguage(

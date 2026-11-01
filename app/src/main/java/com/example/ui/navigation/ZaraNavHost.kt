@@ -98,6 +98,7 @@ fun ZaraNavHost(
                     assistantViewModel = assistantViewModel,
                     onNavigateHistory = { navController.navigate(Screen.History.route) },
                     onNavigateSettings = { navController.navigate(Screen.Settings.route) },
+                    onNavigateApiKey = { navController.navigate(Screen.ApiKeySetup.route) },
                     onOpenDrawer = { isDrawerOpen = true }
                 )
             }
