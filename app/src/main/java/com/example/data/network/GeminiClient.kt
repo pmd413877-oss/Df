@@ -33,6 +33,31 @@ class GeminiClient {
 
     private val apiService = retrofit.create(GeminiApiService::class.java)
 
+    companion object {
+        // High-compatibility candidates tried in order if discovery cannot run
+        private val DEFAULT_CANDIDATE_MODELS = listOf(
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-flash-8b",
+            "gemini-1.5-pro",
+            "gemini-pro"
+        )
+    }
+
+    // Cache the verified working model for the current session
+    @Volatile
+    private var cachedWorkingModel: String? = null
+
+    fun getActiveModel(): String? = cachedWorkingModel
+
+    fun setActiveModel(model: String) {
+        val clean = cleanModelName(model)
+        if (clean.isNotBlank()) {
+            cachedWorkingModel = clean
+        }
+    }
+
     /**
      * Resolves the active API key: user-configured key takes precedence,
      * otherwise falls back to BuildConfig.GEMINI_API_KEY if present and valid.
@@ -53,86 +78,186 @@ class GeminiClient {
         }
     }
 
-    fun sanitizeModel(model: String?): String {
+    fun cleanModelName(model: String?): String {
         val trimmed = model?.trim() ?: ""
+        val withoutPrefix = if (trimmed.startsWith("models/")) {
+            trimmed.removePrefix("models/")
+        } else {
+            trimmed
+        }
+        return if (withoutPrefix == "gemini-2.5-flash") "gemini-2.0-flash" else withoutPrefix
+    }
+
+    /**
+     * Dynamically queries the Google Generative Language API for models
+     * available to this specific key that support content generation.
+     */
+    private suspend fun discoverSupportedModels(apiKey: String): List<String> {
+        return try {
+            val response = apiService.listModels(apiKey)
+            if (response.isSuccessful) {
+                val list = response.body()?.models ?: emptyList()
+                list.filter { info ->
+                    val methods = info.supportedGenerationMethods
+                    methods == null || methods.contains("generateContent")
+                }.map { info ->
+                    cleanModelName(info.name)
+                }.filter { it.isNotBlank() }
+                .sortedWith { m1, m2 ->
+                    // Prioritize modern flash models, then 2.0, then 1.5, then pro
+                    val score1 = modelScore(m1)
+                    val score2 = modelScore(m2)
+                    score1.compareTo(score2)
+                }
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun modelScore(modelName: String): Int {
+        val lower = modelName.lowercase()
         return when {
-            trimmed.isBlank() || trimmed == "gemini-2.5-flash" -> "gemini-1.5-flash"
-            trimmed.startsWith("models/") -> trimmed.removePrefix("models/")
-            else -> trimmed
+            lower.contains("2.0-flash") && !lower.contains("exp") -> 0
+            lower.contains("1.5-flash") && !lower.contains("8b") -> 1
+            lower.contains("2.0-flash-exp") -> 2
+            lower.contains("1.5-flash-8b") -> 3
+            lower.contains("2.0") -> 4
+            lower.contains("1.5-pro") -> 5
+            lower.contains("flash") -> 6
+            lower.contains("pro") -> 7
+            lower.contains("gemini") -> 8
+            else -> 9
         }
     }
 
     /**
-     * Tests an API key with a real minimal generateContent request.
+     * Builds an ordered list of candidate models to attempt for the given key.
+     * Ensures any provided API key automatically works without manual model configuration.
      */
-    suspend fun testConnection(apiKey: String, model: String = "gemini-1.5-flash"): GeminiResult {
+    private suspend fun getCandidateModelsFor(apiKey: String, preferredModel: String? = null): List<String> {
+        val candidates = mutableListOf<String>()
+
+        // 1. Cached verified working model first
+        cachedWorkingModel?.let {
+            if (it.isNotBlank() && !candidates.contains(it)) candidates.add(it)
+        }
+
+        // 2. Preferred/passed model
+        val cleanPreferred = preferredModel?.let { cleanModelName(it) }?.takeIf { it.isNotBlank() }
+        if (cleanPreferred != null && !candidates.contains(cleanPreferred)) {
+            candidates.add(cleanPreferred)
+        }
+
+        // 3. Dynamic discovery from Google API
+        val discovered = discoverSupportedModels(apiKey)
+        discovered.forEach { model ->
+            if (!candidates.contains(model)) {
+                candidates.add(model)
+            }
+        }
+
+        // 4. Fallback default candidates
+        DEFAULT_CANDIDATE_MODELS.forEach { model ->
+            if (!candidates.contains(model)) {
+                candidates.add(model)
+            }
+        }
+
+        return candidates
+    }
+
+    /**
+     * Tests an API key by trying available models automatically.
+     * Guarantees that any valid Gemini API key will connect without requiring model selection.
+     */
+    suspend fun testConnection(apiKey: String, model: String? = null): GeminiResult {
         val trimmedKey = apiKey.trim()
         if (trimmedKey.isEmpty()) {
             return GeminiResult.Error("API key cannot be empty (API কী খালি হতে পারে না)", isAuthError = true)
         }
 
-        val sanitizedModel = sanitizeModel(model)
         val testRequest = GeminiGenerateContentRequest(
             contents = listOf(
                 GeminiContent(
                     role = "user",
-                    parts = listOf(GeminiPart(text = "Hello! Answer with only the word OK."))
+                    parts = listOf(GeminiPart(text = "Hello! Answer with only OK."))
                 )
             ),
             generationConfig = GeminiGenerationConfig(maxOutputTokens = 10)
         )
 
-        return try {
-            var response = apiService.generateContent(
-                model = sanitizedModel,
-                apiKey = trimmedKey,
-                request = testRequest
-            )
+        val candidates = getCandidateModelsFor(trimmedKey, model)
+        var lastError: GeminiResult.Error? = null
 
-            // Auto-recovery if model returned 404
-            if (response.code() == 404 && sanitizedModel != "gemini-1.5-flash") {
-                response = apiService.generateContent(
-                    model = "gemini-1.5-flash",
+        for (candidate in candidates) {
+            try {
+                val response = apiService.generateContent(
+                    model = candidate,
                     apiKey = trimmedKey,
                     request = testRequest
                 )
-            }
 
-            if (response.isSuccessful) {
-                val body = response.body()
-                val text = body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                if (!text.isNullOrBlank()) {
-                    GeminiResult.Success("সফলভাবে সংযোগ হয়েছে! Gemini উত্তর দিয়েছে: ${text.trim()}")
-                } else {
-                    GeminiResult.Success("সফলভাবে সংযোগ হয়েছে! API Status 200 OK.")
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    val text = body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    cachedWorkingModel = candidate
+                    val successMsg = if (!text.isNullOrBlank()) {
+                        "সংযোগ সফল হয়েছে! Gemini প্রস্তুত (স্বয়ংক্রিয় মডেল: $candidate)।"
+                    } else {
+                        "সংযোগ সফল হয়েছে! Gemini প্রস্তুত।"
+                    }
+                    return GeminiResult.Success(successMsg, modelUsed = candidate)
                 }
-            } else {
+
                 val errorCode = response.code()
                 val errorBody = response.errorBody()?.string() ?: ""
+
                 when (errorCode) {
-                    400 -> GeminiResult.Error("Bad Request (400): অনুগ্রহ করে মডেল ও সেটিংস পরীক্ষা করুন। Details: $errorBody")
-                    401, 403 -> GeminiResult.Error("API কী ভুল বা অননুমোদিত ($errorCode)। অনুগ্রহ করে সঠিক Gemini API Key দিন।", isAuthError = true)
-                    404 -> GeminiResult.Error("Gemini মডেলটি পাওয়া যায়নি ($errorCode)।")
-                    429 -> GeminiResult.Error("API কোটা শেষ বা রেট লিমিট অতিক্রম করেছে ($errorCode)। কিছুক্ষণ পর চেষ্টা করুন।", isQuotaError = true)
-                    else -> GeminiResult.Error("API Error ($errorCode): $errorBody")
+                    401, 403 -> {
+                        // Key itself is unauthorized or invalid; don't loop needlessly
+                        return GeminiResult.Error(
+                            "API কী ভুল বা অননুমোদিত ($errorCode)। অনুগ্রহ করে আপনার সঠিক Google AI Studio API key দিন।",
+                            isAuthError = true
+                        )
+                    }
+                    429 -> {
+                        return GeminiResult.Error(
+                            "API কোটা শেষ বা রেট লিমিট অতিক্রম করেছে ($errorCode)। অনুগ্রহ করে কিছুক্ষণ পর চেষ্টা করুন।",
+                            isQuotaError = true
+                        )
+                    }
+                    404 -> {
+                        // Model not supported by this key, try next candidate
+                        lastError = GeminiResult.Error("Gemini মডেল '$candidate' পাওয়া যায়নি (404)।")
+                        continue
+                    }
+                    else -> {
+                        lastError = GeminiResult.Error("API Error ($errorCode): $errorBody")
+                    }
                 }
+            } catch (e: IOException) {
+                return GeminiResult.Error("ইন্টারনেট সংযোগ পাওয়া যাচ্ছে না। আপনার নেটওয়ার্ক কানেকশন চেক করুন।")
+            } catch (e: Exception) {
+                lastError = GeminiResult.Error("সার্ভিস ত্রুটি: ${e.localizedMessage ?: "Unknown error"}")
             }
-        } catch (e: IOException) {
-            GeminiResult.Error("Network error: ইন্টারনেট সংযোগ চেক করুন। Google AI সার্ভারের সাথে যোগাযোগ করা যাচ্ছে না।")
-        } catch (e: Exception) {
-            GeminiResult.Error("Unexpected error: ${e.localizedMessage ?: "Unknown error"}")
         }
+
+        return lastError ?: GeminiResult.Error("Gemini মডেল সংযোগ করা সম্ভব হয়নি (404)। আপনার API কী টি AI Studio তে পরীক্ষা করুন।")
     }
 
     /**
      * Sends a user query to Gemini and returns the assistant's reply.
+     * Automatically uses the verified working model or falls back gracefully on 404.
      */
     suspend fun askGemini(
         question: String,
         userApiKey: String,
         languageCode: String,
         recentHistory: List<Pair<String, String>> = emptyList(),
-        model: String = "gemini-1.5-flash"
+        model: String? = null
     ): GeminiResult {
         val activeKey = resolveApiKey(userApiKey)
         if (activeKey.isBlank()) {
@@ -142,8 +267,6 @@ class GeminiClient {
             )
         }
 
-        val sanitizedModel = sanitizeModel(model)
-
         val languagePrompt = when (languageCode) {
             "bn" -> "You are 'Zara AI', an advanced, futuristic voice-powered personal assistant running natively on the user's Android device. Your primary language is Bengali (বাংলা). You are intelligent, loyal, highly efficient, and polite. You can control apps, search YouTube and the web, screen and answer incoming calls on user's behalf, and manage messages. Respond conversationally, concisely, and warmly in clear, natural Bengali. Avoid long essay paragraphs; write clear sentences optimized for spoken audio delivery."
             "hi" -> "You are 'Zara AI', an advanced, voice-powered personal assistant on Android. Respond in natural, conversational Hindi (हिन्दी). Keep answers concise, polite, and optimized for spoken delivery."
@@ -152,7 +275,6 @@ class GeminiClient {
             else -> "You are 'Zara AI', an advanced, futuristic voice-powered personal assistant running natively on the user's Android phone. You are intelligent, loyal, and efficient. You can manage apps, automate YouTube/web searches, screen calls on behalf of the user, and read messages. Respond conversationally, clearly, and concisely in engaging English, optimized for spoken Text-to-Speech audio."
         }
 
-        // Build conversation turns from recent history
         val contentsList = mutableListOf<GeminiContent>()
         recentHistory.takeLast(4).forEach { (pastQ, pastA) ->
             contentsList.add(GeminiContent(role = "user", parts = listOf(GeminiPart(text = pastQ))))
@@ -171,48 +293,54 @@ class GeminiClient {
             )
         )
 
-        return try {
-            var response = apiService.generateContent(
-                model = sanitizedModel,
-                apiKey = activeKey,
-                request = request
-            )
+        val candidates = getCandidateModelsFor(activeKey, model)
+        var lastError: GeminiResult.Error? = null
 
-            // Auto-recovery if initial model returned 404
-            if (response.code() == 404 && sanitizedModel != "gemini-1.5-flash") {
-                response = apiService.generateContent(
-                    model = "gemini-1.5-flash",
+        for (candidate in candidates) {
+            try {
+                val response = apiService.generateContent(
+                    model = candidate,
                     apiKey = activeKey,
                     request = request
                 )
-            }
 
-            if (response.isSuccessful) {
-                val body = response.body()
-                val text = body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                if (!text.isNullOrBlank()) {
-                    GeminiResult.Success(text.trim())
-                } else {
-                    val blockReason = body?.promptFeedback?.blockReason
-                    if (blockReason != null) {
-                        GeminiResult.Error("রেসপন্স ব্লক করা হয়েছে: $blockReason")
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    val text = body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    if (!text.isNullOrBlank()) {
+                        cachedWorkingModel = candidate
+                        return GeminiResult.Success(text.trim(), modelUsed = candidate)
                     } else {
-                        GeminiResult.Error("Gemini থেকে খালি উত্তর এসেছে। অনুগ্রহ করে প্রশ্নটি আবার করুন।")
+                        val blockReason = body?.promptFeedback?.blockReason
+                        if (blockReason != null) {
+                            return GeminiResult.Error("রেসপন্স ব্লক করা হয়েছে: $blockReason")
+                        }
                     }
                 }
-            } else {
+
                 val code = response.code()
                 when (code) {
-                    401, 403 -> GeminiResult.Error("Gemini API key টি সঠিক নয় বা মেয়াদোত্তীর্ণ ($code)। সেটিংস থেকে নতুন কী দিন।", isAuthError = true)
-                    429 -> GeminiResult.Error("Gemini API ব্যবহারের কোটা শেষ ($code)। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।", isQuotaError = true)
-                    404 -> GeminiResult.Error("Gemini মডেল পাওয়া যায়নি ($code)। মডেল সেটিংস চেক করুন।")
-                    else -> GeminiResult.Error("API request error ($code). অনুগ্রহ করে ইন্টারনেট ও সেটিংস চেক করুন।")
+                    401, 403 -> {
+                        return GeminiResult.Error("Gemini API key টি সঠিক নয় বা মেয়াদোত্তীর্ণ ($code)। সেটিংস থেকে নতুন কী দিন।", isAuthError = true)
+                    }
+                    429 -> {
+                        return GeminiResult.Error("Gemini API ব্যবহারের কোটা শেষ ($code)। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।", isQuotaError = true)
+                    }
+                    404 -> {
+                        // Try next candidate model
+                        continue
+                    }
+                    else -> {
+                        lastError = GeminiResult.Error("API request error ($code). অনুগ্রহ করে ইন্টারনেট ও সেটিংস চেক করুন।")
+                    }
                 }
+            } catch (e: IOException) {
+                return GeminiResult.Error("ইন্টারনেট সংযোগ পাওয়া যাচ্ছে না। ইন্টারনেট কানেকশন চেক করে আবার চেষ্টা করুন।")
+            } catch (e: Exception) {
+                lastError = GeminiResult.Error("সার্ভিস ত্রুটি: ${e.localizedMessage ?: "Unexpected error"}")
             }
-        } catch (e: IOException) {
-            GeminiResult.Error("ইন্টারনেট সংযোগ পাওয়া যাচ্ছে না। ইন্টারনেট কানেকশন চেক করে আবার চেষ্টা করুন।")
-        } catch (e: Exception) {
-            GeminiResult.Error("সার্ভিস ত্রুটি: ${e.localizedMessage ?: "Unexpected error"}")
         }
+
+        return lastError ?: GeminiResult.Error("Gemini সার্ভারের সাথে সংযোগ করা যায়নি। অনুগ্রহ করে সেটিংস থেকে API Key পরীক্ষা করুন।")
     }
 }

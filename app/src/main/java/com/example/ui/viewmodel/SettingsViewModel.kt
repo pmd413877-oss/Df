@@ -40,7 +40,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun saveApiKey(apiKey: String) {
         viewModelScope.launch {
-            preferencesRepository.saveApiKey(apiKey)
+            val trimmed = apiKey.trim()
+            preferencesRepository.saveApiKey(trimmed)
+            geminiClient.getActiveModel()?.let { workingModel ->
+                preferencesRepository.setSelectedModel(workingModel)
+            }
         }
     }
 
@@ -51,12 +55,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun testConnection(apiKey: String, model: String = "gemini-1.5-flash") {
+    fun testConnection(apiKey: String, model: String? = null) {
         viewModelScope.launch {
             _isTestingConnection.value = true
             _testConnectionState.value = null
             val resolvedKey = geminiClient.resolveApiKey(apiKey)
             val result = geminiClient.testConnection(resolvedKey, model)
+            if (result is GeminiResult.Success) {
+                result.modelUsed?.let { workingModel ->
+                    preferencesRepository.setSelectedModel(workingModel)
+                }
+            }
             _testConnectionState.value = result
             _isTestingConnection.value = false
         }

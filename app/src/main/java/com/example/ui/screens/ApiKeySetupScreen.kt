@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -185,10 +186,10 @@ fun ApiKeySetupScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Enter your Google AI Studio API key to power Zara's voice answers.",
+                            text = "যেকোনো Gemini API Key দিন — জারা নিজে থেকেই উপযুক্ত মডেল স্বয়ংক্রিয়ভাবে নির্ধারণ করবে। কোনো মডেল সিলেক্ট করতে হবে না।",
                             color = TextSecondary,
-                            fontSize = 12.5.sp,
-                            lineHeight = 17.sp
+                            fontSize = 12.sp,
+                            lineHeight = 16.5.sp
                         )
                     }
                 }
@@ -270,7 +271,7 @@ fun ApiKeySetupScreen(
             // Action Buttons Row: Test Connection & Save
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Test Connection Button
                 OutlinedButton(
@@ -283,22 +284,38 @@ fun ApiKeySetupScreen(
                         brush = Brush.horizontalGradient(listOf(AccentCyanBright, PrimaryPurpleLight))
                     ),
                     shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
                         .testTag("test_connection_button")
                 ) {
                     if (isTesting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = AccentCyanBright,
-                            strokeWidth = 2.dp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = AccentCyanBright,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "টেস্ট হচ্ছে...",
+                                color = AccentCyanBright,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
                     } else {
                         Text(
                             text = "Test Connection",
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp
+                            fontSize = 12.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -310,13 +327,14 @@ fun ApiKeySetupScreen(
                         if (keyToSave.isNotBlank()) {
                             settingsViewModel.saveApiKey(keyToSave)
                             coroutineScope.launch {
-                                snackbarHostState.showSnackbar("API key saved successfully!")
+                                snackbarHostState.showSnackbar("API key saved successfully! (API কী সংরক্ষণ হয়েছে)")
                             }
                         }
                     },
                     enabled = apiKeyInput.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                     shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
@@ -326,7 +344,8 @@ fun ApiKeySetupScreen(
                         text = "Save Key",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.5.sp
+                        fontSize = 13.sp,
+                        maxLines = 1
                     )
                 }
             }
@@ -425,10 +444,10 @@ fun ApiKeySetupScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "1. Visit Google AI Studio in your browser.\n2. Sign in with your Google account.\n3. Click 'Get API Key' and create a new key.\n4. Copy and paste it here.",
+                        text = "১. Google AI Studio (aistudio.google.com) থেকে আপনার ফ্রি API Key নিন।\n২. এখানে কী (Key) পেস্ট করুন এবং Save Key চাপুন।\n৩. কোনো মডেল বেছে নেওয়া বা সেট করার প্রয়োজন নেই—যেকোনো Gemini Key দিয়ে জারা স্বয়ংক্রিয়ভাবে সংযুক্ত হবে।",
                         color = TextSecondary,
                         fontSize = 12.5.sp,
-                        lineHeight = 18.sp
+                        lineHeight = 18.5.sp
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))

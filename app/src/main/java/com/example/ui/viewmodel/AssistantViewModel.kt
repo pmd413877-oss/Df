@@ -389,6 +389,10 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     val answer = result.text
                     val duration = System.currentTimeMillis() - startTime
 
+                    result.modelUsed?.let { workingModel ->
+                        preferencesRepository.setSelectedModel(workingModel)
+                    }
+
                     // Save to Room DB
                     conversationRepository.saveConversation(
                         question = trimmed,

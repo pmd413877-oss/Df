@@ -57,7 +57,19 @@ data class GeminiApiError(
     @field:Json(name = "status") val status: String? = null
 )
 
+@JsonClass(generateAdapter = true)
+data class GeminiListModelsResponse(
+    @field:Json(name = "models") val models: List<GeminiModelInfo>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiModelInfo(
+    @field:Json(name = "name") val name: String,
+    @field:Json(name = "displayName") val displayName: String? = null,
+    @field:Json(name = "supportedGenerationMethods") val supportedGenerationMethods: List<String>? = null
+)
+
 sealed class GeminiResult {
-    data class Success(val text: String) : GeminiResult()
+    data class Success(val text: String, val modelUsed: String? = null) : GeminiResult()
     data class Error(val message: String, val isAuthError: Boolean = false, val isQuotaError: Boolean = false) : GeminiResult()
 }
