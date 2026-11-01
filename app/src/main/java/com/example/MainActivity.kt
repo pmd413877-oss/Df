@@ -42,6 +42,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        val hasMicPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        assistantViewModel.setMicPermissionGranted(hasMicPermission)
+        if (hasMicPermission && assistantViewModel.uiState.value.errorMessage?.contains("Microphone", ignoreCase = true) == true) {
+            assistantViewModel.clearError()
+        }
+    }
+
     override fun onPause() {
         super.onPause()
         assistantViewModel.ttsManager.stop()

@@ -69,16 +69,16 @@ class SpeechRecognizerManager(private val context: Context) {
                     override fun onError(error: Int) {
                         isListening = false
                         val message = when (error) {
-                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
-                            SpeechRecognizer.ERROR_CLIENT -> "Speech recognition client error"
-                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required"
-                            SpeechRecognizer.ERROR_NETWORK -> "Network error during speech recognition"
-                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout while recognizing speech"
-                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Please try again."
-                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy. Retrying..."
-                            SpeechRecognizer.ERROR_SERVER -> "Server error from speech recognition"
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected. Please tap and speak."
-                            else -> "Speech recognition error code: $error"
+                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error (অডিও রেকর্ডিংয়ে ত্রুটি হয়েছে)"
+                            SpeechRecognizer.ERROR_CLIENT -> "Speech recognition client error (স্পিচ সার্ভিসে সমস্যা)"
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required (মাইক্রোফোন পারমিশন প্রয়োজন)"
+                            SpeechRecognizer.ERROR_NETWORK -> "Network error during speech recognition (ইন্টারনেট সংযোগ চেক করুন)"
+                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout while recognizing speech (ইন্টারনেট টাইমআউট হয়েছে)"
+                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Please try again (কথা বোঝা যায়নি, আবার বলুন)"
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy (মাইক্রোফোন প্রস্তুত হচ্ছে...)"
+                            SpeechRecognizer.ERROR_SERVER -> "Server error from speech recognition (সার্ভার সমস্যা)"
+                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected. Please tap and speak (কোনো কথা শোনা যায়নি, ট্যাপ করে বলুন)"
+                            else -> "Speech recognition error ($error)"
                         }
                         _speechState.value = SpeechState.Error(
                             message = message,

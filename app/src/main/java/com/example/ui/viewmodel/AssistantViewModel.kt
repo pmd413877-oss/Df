@@ -131,12 +131,26 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(isMicPermissionGranted = granted) }
     }
 
+    fun startVoiceListening() {
+        _uiState.update { it.copy(voiceState = VoiceState.IDLE, errorMessage = null) }
+        ttsManager.stop()
+        val lang = _uiState.value.languageCode
+        speechManager.startListening(lang)
+    }
+
+    fun showMicPermissionDeniedError() {
+        _uiState.update {
+            it.copy(
+                voiceState = VoiceState.ERROR,
+                errorMessage = "Microphone permission is required (মাইক্রোফোন পারমিশন প্রয়োজন)। জারার সাথে কথা বলতে পারমিশন এলাউ (Allow) করুন।"
+            )
+        }
+    }
+
     fun onMicButtonClicked() {
         when (_uiState.value.voiceState) {
             VoiceState.IDLE, VoiceState.ERROR -> {
-                ttsManager.stop()
-                val lang = _uiState.value.languageCode
-                speechManager.startListening(lang)
+                startVoiceListening()
             }
             VoiceState.LISTENING -> {
                 speechManager.stopListening()

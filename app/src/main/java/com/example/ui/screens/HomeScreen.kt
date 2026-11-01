@@ -1,9 +1,16 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -47,17 +54,23 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QuestionMark
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -97,6 +110,18 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val uiState by assistantViewModel.uiState.collectAsState()
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        assistantViewModel.setMicPermissionGranted(isGranted)
+        if (isGranted) {
+            assistantViewModel.clearError()
+            assistantViewModel.startVoiceListening()
+        } else {
+            assistantViewModel.showMicPermissionDeniedError()
+        }
+    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "home_mic_pulse")
     val micPulse by infiniteTransition.animateFloat(
@@ -166,7 +191,30 @@ fun HomeScreen(
                     onSpeak = { assistantViewModel.speakCurrentResponse() },
                     onStopSpeech = { assistantViewModel.stopSpeaking() },
                     onDismissError = { assistantViewModel.clearError() },
-                    onCancelProcessing = { assistantViewModel.cancelProcessing() }
+                    onCancelProcessing = { assistantViewModel.cancelProcessing() },
+                    onRequestMicPermission = {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    onOpenSettings = {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        }
+                        context.startActivity(intent)
+                    },
+                    onOpenTextInput = {
+                        assistantViewModel.openTextInput()
+                    },
+                    onRetryVoice = {
+                        val hasMicPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (!hasMicPermission) {
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            assistantViewModel.startVoiceListening()
+                        }
+                    }
                 )
 
                 // Audio Waveform Visualizer
@@ -218,7 +266,18 @@ fun HomeScreen(
                                 ),
                                 shape = CircleShape
                             )
-                            .clickable { assistantViewModel.onMicButtonClicked() }
+                            .clickable {
+                                val hasMicPermission = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+
+                                if (!hasMicPermission) {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                } else {
+                                    assistantViewModel.onMicButtonClicked()
+                                }
+                            }
                             .testTag("home_mic_button"),
                         contentAlignment = Alignment.Center
                     ) {
@@ -402,6 +461,10 @@ private fun SpeechBubbleCard(
     onStopSpeech: () -> Unit,
     onDismissError: () -> Unit,
     onCancelProcessing: () -> Unit,
+    onRequestMicPermission: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenTextInput: () -> Unit,
+    onRetryVoice: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -433,42 +496,210 @@ private fun SpeechBubbleCard(
         when {
             // Error State
             uiState.errorMessage != null -> {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Error,
-                            contentDescription = null,
-                            tint = ErrorRed,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Error Occurred",
-                            color = ErrorRed,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        IconButton(
-                            onClick = onDismissError,
-                            modifier = Modifier.size(28.dp)
+                val isMicPermissionError = uiState.errorMessage.contains("Microphone", ignoreCase = true) ||
+                        uiState.errorMessage.contains("মাইক্রোফোন", ignoreCase = true) ||
+                        uiState.errorMessage.contains("permission", ignoreCase = true)
+
+                if (isMicPermissionError) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp)
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = AccentCyanBright,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "মাইক্রোফোন পারমিশন প্রয়োজন",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            IconButton(
+                                onClick = onDismissError,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = "জারার সাথে সরাসরি কথা বলতে এবং আপনার কাজগুলো করাতে মাইক্রোফোন পারমিশন চালু করুন।",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Action buttons: [অনুমতি দিন] [অ্যাপ সেটিংস]
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = onRequestMicPermission,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PrimaryPurple
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("bubble_allow_mic_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "অনুমতি দিন",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = onOpenSettings,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("bubble_open_settings_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = AccentCyanBright
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "অ্যাপ সেটিংস",
+                                    color = AccentCyanBright,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onOpenTextInput() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .testTag("bubble_type_fallback_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Keyboard,
+                                contentDescription = null,
+                                tint = PrimaryPurpleLight,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "অথবা কীবোর্ডে টাইপ করে কথা বলুন",
+                                color = PrimaryPurpleLight,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = uiState.errorMessage,
-                        color = TextPrimary,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 18.sp
-                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Error,
+                                contentDescription = null,
+                                tint = ErrorRed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Error Occurred",
+                                color = ErrorRed,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            IconButton(
+                                onClick = onDismissError,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = uiState.errorMessage,
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = onRetryVoice,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PrimaryPurple
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = "পুনরায় চেষ্টা করুন", fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = onOpenTextInput,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Keyboard,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = AccentCyanBright
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = "টাইপ করুন", fontSize = 12.sp, color = AccentCyanBright)
+                            }
+                        }
+                    }
                 }
             }
 
